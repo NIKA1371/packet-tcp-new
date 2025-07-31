@@ -1,4 +1,3 @@
-
 #!/bin/bash
 set -e
 
@@ -103,9 +102,10 @@ EOF
     skip_port=30087
     for i in "${!PORTS[@]}"; do
         while [[ $base_port -eq $skip_port ]]; do ((base_port++)); done
-        echo "    { "name": "input$((i+1))", "type": "TcpListener", "settings": { "address": "0.0.0.0", "port": ${PORTS[$i]}, "nodelay": true }, "next": "hd$((i+1))" }," >> config.json
-        echo "    { "name": "hd$((i+1))", "type": "HalfDuplexClient", "settings": {}, "next": "out$((i+1))" }," >> config.json
-        echo "    { "name": "out$((i+1))", "type": "TcpConnector", "settings": { "nodelay": true, "address": "10.10.0.2", "port": $base_port } }," >> config.json
+        echo "    { \"name\": \"input$((i+1))\", \"type\": \"TcpListener\", \"settings\": { \"address\": \"0.0.0.0\", \"port\": ${PORTS[$i]}, \"nodelay\": true }, \"next\": \"hd$((i+1))\" }," >> config.json
+        echo "    { \"name\": \"hd$((i+1))\", \"type\": \"HalfDuplexClient\", \"settings\": {}, \"next\": \"out$((i+1))\" }," >> config.json
+        echo "    { \"name\": \"out$((i+1))\", \"type\": \"TcpConnector\", \"settings\": { \"nodelay\": true, \"address\": \"10.10.0.2\", \"port\": $base_port } }," >> config.json
+        echo "    // ${PORTS[$i]} → $base_port"  # برای خوانایی نگاشت
         ((base_port++))
     done
     sed -i '$ s/,$//' config.json
@@ -132,9 +132,10 @@ EOF
     skip_port=30087
     for i in "${!PORTS[@]}"; do
         while [[ $base_port -eq $skip_port ]]; do ((base_port++)); done
-        echo "    { "name": "input$((i+1))", "type": "TcpListener", "settings": { "address": "0.0.0.0", "port": $base_port, "nodelay": true }, "next": "hd$((i+1))" }," >> config.json
-        echo "    { "name": "hd$((i+1))", "type": "HalfDuplexServer", "settings": {}, "next": "out$((i+1))" }," >> config.json
-        echo "    { "name": "out$((i+1))", "type": "TcpConnector", "settings": { "nodelay": true, "address": "127.0.0.1", "port": ${PORTS[$i]} } }," >> config.json
+        echo "    { \"name\": \"input$((i+1))\", \"type\": \"TcpListener\", \"settings\": { \"address\": \"0.0.0.0\", \"port\": $base_port, \"nodelay\": true }, \"next\": \"hd$((i+1))\" }," >> config.json
+        echo "    { \"name\": \"hd$((i+1))\", \"type\": \"HalfDuplexServer\", \"settings\": {}, \"next\": \"out$((i+1))\" }," >> config.json
+        echo "    { \"name\": \"out$((i+1))\", \"type\": \"TcpConnector\", \"settings\": { \"nodelay\": true, \"address\": \"127.0.0.1\", \"port\": ${PORTS[$i]} } }," >> config.json
+        echo "    // $base_port → ${PORTS[$i]}"  # نگاشت برعکس
         ((base_port++))
     done
     sed -i '$ s/,$//' config.json
