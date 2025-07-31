@@ -148,7 +148,13 @@ fi
 log "Creating poststart.sh..."
 cat > poststart.sh <<EOF
 #!/bin/bash
-for i in {1..10}; do ip link show wtun0 && break; sleep 1; done
+# تلاش برای شناسایی wtun0 تا 10 بار با فاصله 1 ثانیه
+for i in {1..10}; do
+    ip link show wtun0 && break
+    sleep 1
+done
+
+# پیکربندی دستگاه‌های شبکه
 ip link set dev eth0 mtu 1420 || true
 ip link set dev wtun0 mtu 1420 || true
 EOF
