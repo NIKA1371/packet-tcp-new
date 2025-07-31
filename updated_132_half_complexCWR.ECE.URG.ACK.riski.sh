@@ -93,7 +93,7 @@ if [[ "$ROLE" == "iran" ]]; then
     { "name": "tun", "type": "TunDevice", "settings": { "device-name": "wtun0", "device-ip": "10.10.0.1/24" }, "next": "srcip" },
     { "name": "srcip", "type": "IpOverrider", "settings": { "direction": "up", "mode": "source-ip", "ipv4": "$IP_IRAN" }, "next": "dstip" },
     { "name": "dstip", "type": "IpOverrider", "settings": { "direction": "up", "mode": "dest-ip", "ipv4": "$IP_KHAREJ" }, "next": "manip" },
-    { "name": "manip", "type": "IpManipulator", "settings": { "protoswap": 253, "tcp-flags-bits": "11100100" }, "next": "dnsrc" },
+    { "name": "manip", "type": "IpManipulator", "settings": { "protoswap": 253, "tcp-flags": { "set": [], "unset": ["syn", "rst", "fin", "psh", "ack", "urg"] } }, "next": "dnsrc" },
     { "name": "dnsrc", "type": "IpOverrider", "settings": { "direction": "down", "mode": "source-ip", "ipv4": "10.10.0.2" }, "next": "dndst" },
     { "name": "dndst", "type": "IpOverrider", "settings": { "direction": "down", "mode": "dest-ip", "ipv4": "10.10.0.1" }, "next": "stream" },
     { "name": "stream", "type": "RawSocket", "settings": { "capture-filter-mode": "source-ip", "capture-ip": "$IP_KHAREJ" } },
@@ -103,9 +103,10 @@ EOF
     skip_port=30087
     for i in "${!PORTS[@]}"; do
         while [[ $base_port -eq $skip_port ]]; do ((base_port++)); done
-        echo "    { "name": "input$((i+1))", "type": "TcpListener", "settings": { "address": "0.0.0.0", "port": ${PORTS[$i]}, "nodelay": true }, "next": "hd$((i+1))" }," >> config.json
-        echo "    { "name": "hd$((i+1))", "type": "HalfDuplexClient", "settings": {}, "next": "out$((i+1))" }," >> config.json
-        echo "    { "name": "out$((i+1))", "type": "TcpConnector", "settings": { "nodelay": true, "address": "10.10.0.2", "port": $base_port } }," >> config.json
+        echo "    { \"name\": \"input$((i+1))\", \"type\": \"TcpListener\", \"settings\": { \"address\": \"0.0.0.0\", \"port\": ${PORTS[$i]}, \"nodelay\": true }, \"next\": \"hd$((i+1))\" }," >> config.json
+        echo "    { \"name\": \"hd$((i+1))\", \"type\": \"HalfDuplexClient\", \"settings\": {}, \"next\": \"out$((i+1))\" }," >> config.json
+        echo "    { \"name\": \"out$((i+1))\", \"type\": \"TcpConnector\", \"settings\": { \"nodelay\": true, \"address\": \"10.10.0.2\", \"port\": $base_port } }," >> config.json
+        echo "    // ${PORTS[$i]} → $base_port"  # برای خوانایی نگاشت
         ((base_port++))
     done
     sed -i '$ s/,$//' config.json
@@ -122,7 +123,7 @@ if [[ "$ROLE" == "kharej" ]]; then
     { "name": "tun", "type": "TunDevice", "settings": { "device-name": "wtun0", "device-ip": "10.10.0.1/24" }, "next": "srcip" },
     { "name": "srcip", "type": "IpOverrider", "settings": { "direction": "up", "mode": "source-ip", "ipv4": "$IP_KHAREJ" }, "next": "dstip" },
     { "name": "dstip", "type": "IpOverrider", "settings": { "direction": "up", "mode": "dest-ip", "ipv4": "$IP_IRAN" }, "next": "manip" },
-    { "name": "manip", "type": "IpManipulator", "settings": { "protoswap": 253, "tcp-flags-bits": "11100100" }, "next": "dnsrc" },
+    { "name": "manip", "type": "IpManipulator", "settings": { "protoswap": 253, "tcp-flags": { "set": [], "unset": ["syn", "rst", "fin", "psh", "ack", "urg"] } }, "next": "dnsrc" },
     { "name": "dnsrc", "type": "IpOverrider", "settings": { "direction": "down", "mode": "source-ip", "ipv4": "10.10.0.2" }, "next": "dndst" },
     { "name": "dndst", "type": "IpOverrider", "settings": { "direction": "down", "mode": "dest-ip", "ipv4": "10.10.0.1" }, "next": "stream" },
     { "name": "stream", "type": "RawSocket", "settings": { "capture-filter-mode": "source-ip", "capture-ip": "$IP_IRAN" } },
@@ -132,9 +133,10 @@ EOF
     skip_port=30087
     for i in "${!PORTS[@]}"; do
         while [[ $base_port -eq $skip_port ]]; do ((base_port++)); done
-        echo "    { "name": "input$((i+1))", "type": "TcpListener", "settings": { "address": "0.0.0.0", "port": $base_port, "nodelay": true }, "next": "hd$((i+1))" }," >> config.json
-        echo "    { "name": "hd$((i+1))", "type": "HalfDuplexServer", "settings": {}, "next": "out$((i+1))" }," >> config.json
-        echo "    { "name": "out$((i+1))", "type": "TcpConnector", "settings": { "nodelay": true, "address": "127.0.0.1", "port": ${PORTS[$i]} } }," >> config.json
+        echo "    { \"name\": \"input$((i+1))\", \"type\": \"TcpListener\", \"settings\": { \"address\": \"0.0.0.0\", \"port\": $base_port, \"nodelay\": true }, \"next\": \"hd$((i+1))\" }," >> config.json
+        echo "    { \"name\": \"hd$((i+1))\", \"type\": \"HalfDuplexServer\", \"settings\": {}, \"next\": \"out$((i+1))\" }," >> config.json
+        echo "    { \"name\": \"out$((i+1))\", \"type\": \"TcpConnector\", \"settings\": { \"nodelay\": true, \"address\": \"127.0.0.1\", \"port\": ${PORTS[$i]} } }," >> config.json
+        echo "    // $base_port → ${PORTS[$i]}"  # نگاشت برعکس
         ((base_port++))
     done
     sed -i '$ s/,$//' config.json
