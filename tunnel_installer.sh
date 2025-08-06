@@ -1,4 +1,3 @@
-
 #!/bin/bash
 set -e
 
@@ -7,76 +6,61 @@ SERVICE_FILE="/etc/systemd/system/packettunnel.service"
 CORE_URL="https://raw.githubusercontent.com/NIKA1371/packet-tcp-new/main/core.json"
 WATERWALL_URL="https://raw.githubusercontent.com/NIKA1371/packet-tcp-new/main/Waterwall"
 
-log() {
-    echo -e "[+] $1"
-}
-
-# حذف نصب
-if [[ "$1" == "--uninstall" ]]; then
-    echo "[*] Stopping PacketTunnel service..."
-    systemctl stop packettunnel.service 2>/dev/null
-    systemctl disable packettunnel.service 2>/dev/null
-    systemctl stop packettunnel-restart.timer 2>/dev/null
-    systemctl disable packettunnel-restart.timer 2>/dev/null
-
-    echo "[*] Killing any running Waterwall..."
-    pkill -f Waterwall 2>/dev/null
-
-    echo "[*] Removing service and timer files..."
-    rm -f /etc/systemd/system/packettunnel.service
-    rm -f /etc/systemd/system/packettunnel-restart.service
-    rm -f /etc/systemd/system/packettunnel-restart.timer
-
-    echo "[*] Removing installation directory..."
-    rm -rf /root/packettunnel
-
-    echo "[*] Reloading systemd..."
-    systemctl daemon-reexec
-    systemctl daemon-reload
-
-    echo "✅ PacketTunnel fully removed."
-    exit 0
-fi
-
-# بررسی نبود آرگومان
-if [[ $# -eq 0 ]]; then
-    echo "❌ No arguments provided."
-    echo "Usage:"
-    echo "  --role iran|kharej --ip-iran x.x.x.x --ip-kharej x.x.x.x --ports <list>"
-    echo "  --uninstall"
-    exit 1
-fi
-
-# پارس آرگومان‌ها
+# --- پارامترها ---
 ROLE=""
 IP_IRAN=""
 IP_KHAREJ=""
 PORTS=()
+METHOD=""
+USE_OBFS=false
+USE_MUX=false
+USE_TLS=false
 
+log() { echo -e "[+] $1"; }
+
+# حذف نصب
+if [[ "$1" == "--uninstall" ]]; then
+    systemctl stop packettunnel.service 2>/dev/null || true
+    systemctl disable packettunnel.service 2>/dev/null || true
+    systemctl stop packettunnel-restart.timer 2>/dev/null || true
+    systemctl disable packettunnel-restart.timer 2>/dev/null || true
+    pkill -f Waterwall 2>/dev/null || true
+    rm -f /etc/systemd/system/packettunnel.service
+    rm -f /etc/systemd/system/packettunnel-restart.service
+    rm -f /etc/systemd/system/packettunnel-restart.timer
+    rm -rf "$INSTALL_DIR"
+    systemctl daemon-reexec
+    systemctl daemon-reload
+    echo "✅ PacketTunnel fully removed."
+    exit 0
+fi
+
+# پارس آرگومان‌ها
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --role) ROLE="$2"; shift 2 ;;
         --ip-iran) IP_IRAN="$2"; shift 2 ;;
         --ip-kharej) IP_KHAREJ="$2"; shift 2 ;;
-        --ports)
-            shift
-            while [[ "$1" =~ ^[0-9]+$ ]]; do
-                PORTS+=("$1")
-                shift || break
-            done
-            ;;
+        --ports) shift; while [[ "$1" =~ ^[0-9]+$ ]]; do PORTS+=("$1"); shift || break; done ;;
+        --method) METHOD="$2"; shift 2 ;;
+        --obfs) USE_OBFS=true; shift ;;
+        --mux) USE_MUX=true; shift ;;
+        --tls) USE_TLS=true; shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
 
-if [[ -z "$ROLE" || -z "$IP_IRAN" || -z "$IP_KHAREJ" ]]; then
+if [[ -z "$ROLE" || -z "$IP_IRAN" || -z "$IP_KHAREJ" || -z "$METHOD" ]]; then
     echo "❌ Missing required arguments"
+    echo "Usage: $0 --role iran|kharej --ip-iran x.x.x.x --ip-kharej x.x.x.x --ports <list> --method half|tcp-over-udp|udp-over-tcp|tls|reverse"
+    echo "Optional: --obfs --mux --tls"
     exit 1
 fi
 
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
+# دانلود باینری و core.json
 log "Downloading Waterwall..."
 curl -fsSL "$WATERWALL_URL" -o Waterwall
 chmod +x Waterwall
@@ -84,77 +68,70 @@ chmod +x Waterwall
 log "Downloading core.json..."
 curl -fsSL "$CORE_URL" -o core.json
 
-# تولید config سمت ایران
-if [[ "$ROLE" == "iran" ]]; then
-    cat > "$INSTALL_DIR/config.json" <<EOF
+# ساخت config.json
+log "Building config.json..."
+CHAIN_NODES=()
+
+cat > config.json <<EOF
 {
-  "name": "iran",
+  "name": "$ROLE",
   "nodes": [
     { "name": "tun", "type": "TunDevice", "settings": { "device-name": "wtun0", "device-ip": "10.10.0.1/24" }, "next": "srcip" },
-    { "name": "srcip", "type": "IpOverrider", "settings": { "direction": "up", "mode": "source-ip", "ipv4": "$IP_IRAN" }, "next": "dstip" },
-    { "name": "dstip", "type": "IpOverrider", "settings": { "direction": "up", "mode": "dest-ip", "ipv4": "$IP_KHAREJ" }, "next": "manip" },
-    { "name": "manip", "type": "IpManipulator", "settings": { "protoswap": 132, "tcp-flags": { "set": ["ack", "urg"], "unset": ["syn", "rst", "fin", "psh"] } }, "next": "dnsrc" },
-    { "name": "dnsrc", "type": "IpOverrider", "settings": { "direction": "down", "mode": "source-ip", "ipv4": "10.10.0.2" }, "next": "dndst" },
-    { "name": "dndst", "type": "IpOverrider", "settings": { "direction": "down", "mode": "dest-ip", "ipv4": "10.10.0.1" }, "next": "stream" },
-    { "name": "stream", "type": "RawSocket", "settings": { "capture-filter-mode": "source-ip", "capture-ip": "$IP_KHAREJ" } },
+    { "name": "srcip", "type": "IpOverrider", "settings": { "direction": "up", "mode": "source-ip", "ipv4": "$([[ $ROLE == "iran" ]] && echo $IP_IRAN || echo $IP_KHAREJ)" }, "next": "dstip" },
+    { "name": "dstip", "type": "IpOverrider", "settings": { "direction": "up", "mode": "dest-ip", "ipv4": "$([[ $ROLE == "iran" ]] && echo $IP_KHAREJ || echo $IP_IRAN)" }, "next": "stream" },
+    { "name": "stream", "type": "RawSocket", "settings": { "capture-filter-mode": "source-ip", "capture-ip": "$([[ $ROLE == "iran" ]] && echo $IP_KHAREJ || echo $IP_IRAN)" } },
 EOF
 
-    base_port=30083
-    skip_port=30087
-    for i in "${!PORTS[@]}"; do
-        while [[ $base_port -eq $skip_port ]]; do ((base_port++)); done
-        echo "    { \"name\": \"input$((i+1))\", \"type\": \"TcpListener\", \"settings\": { \"address\": \"0.0.0.0\", \"port\": ${PORTS[$i]}, \"nodelay\": true }, \"next\": \"hd$((i+1))\" }," >> config.json
-        echo "    { \"name\": \"hd$((i+1))\", \"type\": \"HalfDuplexClient\", \"settings\": {}, \"next\": \"out$((i+1))\" }," >> config.json
-        echo "    { \"name\": \"out$((i+1))\", \"type\": \"TcpConnector\", \"settings\": { \"nodelay\": true, \"address\": \"10.10.0.2\", \"port\": $base_port } }," >> config.json
-        echo "    // ${PORTS[$i]} → $base_port"  # برای خوانایی نگاشت
-        ((base_port++))
-    done
-    sed -i '$ s/,$//' config.json
-    echo "  ]
+base_port=30083
+skip_port=30087
+
+for i in "${!PORTS[@]}"; do
+    while [[ $base_port -eq $skip_port ]]; do ((base_port++)); done
+    echo "    { \"name\": \"input$((i+1))\", \"type\": \"TcpListener\", \"settings\": { \"address\": \"0.0.0.0\", \"port\": ${PORTS[$i]}, \"nodelay\": true }, \"next\": \"chain$((i+1))\" }," >> config.json
+
+    chain="chain$((i+1))"
+    if $USE_MUX; then
+        echo "    { \"name\": \"$chain\", \"type\": \"Mux$([[ $ROLE == "iran" ]] && echo Client || echo Server)\", \"settings\": {}, \"next\": \"${chain}m\" }," >> config.json
+        chain="${chain}m"
+        CHAIN_NODES+=("Mux")
+    fi
+
+    case "$METHOD" in
+        half) type="HalfDuplex$([[ $ROLE == "iran" ]] && echo Client || echo Server)" ;;
+        tcp-over-udp) type="TcpOverUdp$([[ $ROLE == "iran" ]] && echo Client || echo Server)" ;;
+        udp-over-tcp) type="UdpOverTcp$([[ $ROLE == "iran" ]] && echo Client || echo Server)" ;;
+        tls) type="Tls$([[ $ROLE == "iran" ]] && echo Client || echo Server)" ;;
+        reverse) type="Reverse$([[ $ROLE == "iran" ]] && echo Client || echo Server)" ;;
+        *) echo "❌ Unknown method"; exit 1 ;;
+    esac
+    echo "    { \"name\": \"$chain\", \"type\": \"$type\", \"settings\": {}, \"next\": \"${chain}o\" }," >> config.json
+    chain="${chain}o"
+    CHAIN_NODES+=("$METHOD")
+
+    if $USE_OBFS; then
+        echo "    { \"name\": \"$chain\", \"type\": \"Obfuscator$([[ $ROLE == "iran" ]] && echo Client || echo Server)\", \"settings\": {\"key\": \"123\"}, \"next\": \"${chain}t\" }," >> config.json
+        chain="${chain}t"
+        CHAIN_NODES+=("Obfs")
+    fi
+
+    if $USE_TLS && [[ "$METHOD" != "tls" ]]; then
+        echo "    { \"name\": \"$chain\", \"type\": \"Tls$([[ $ROLE == "iran" ]] && echo Client || echo Server)\", \"settings\": {}, \"next\": \"${chain}t2\" }," >> config.json
+        chain="${chain}t2"
+        CHAIN_NODES+=("TLS")
+    fi
+
+    echo "    { \"name\": \"$chain\", \"type\": \"TcpConnector\", \"settings\": { \"nodelay\": true, \"address\": \"$([[ $ROLE == "iran" ]] && echo 10.10.0.2 || echo 127.0.0.1)\", \"port\": $([[ $ROLE == "iran" ]] && echo $base_port || echo ${PORTS[$i]}) } }," >> config.json
+    ((base_port++))
+done
+
+sed -i '$ s/,$//' config.json
+echo "  ]
 }" >> config.json
-fi
 
-# تولید config سمت خارج
-if [[ "$ROLE" == "kharej" ]]; then
-    cat > "$INSTALL_DIR/config.json" <<EOF
-{
-  "name": "kharej",
-  "nodes": [
-    { "name": "tun", "type": "TunDevice", "settings": { "device-name": "wtun0", "device-ip": "10.10.0.1/24" }, "next": "srcip" },
-    { "name": "srcip", "type": "IpOverrider", "settings": { "direction": "up", "mode": "source-ip", "ipv4": "$IP_KHAREJ" }, "next": "dstip" },
-    { "name": "dstip", "type": "IpOverrider", "settings": { "direction": "up", "mode": "dest-ip", "ipv4": "$IP_IRAN" }, "next": "manip" },
-    { "name": "manip", "type": "IpManipulator", "settings": { "protoswap": 132, "tcp-flags": { "set": ["ack", "urg"], "unset": ["syn", "rst", "fin", "psh"] } }, "next": "dnsrc" },
-    { "name": "dnsrc", "type": "IpOverrider", "settings": { "direction": "down", "mode": "source-ip", "ipv4": "10.10.0.2" }, "next": "dndst" },
-    { "name": "dndst", "type": "IpOverrider", "settings": { "direction": "down", "mode": "dest-ip", "ipv4": "10.10.0.1" }, "next": "stream" },
-    { "name": "stream", "type": "RawSocket", "settings": { "capture-filter-mode": "source-ip", "capture-ip": "$IP_IRAN" } },
-EOF
+# نمایش ترتیب نودها
+log "Node chain order: ${CHAIN_NODES[*]}"
 
-    base_port=30083
-    skip_port=30087
-    for i in "${!PORTS[@]}"; do
-        while [[ $base_port -eq $skip_port ]]; do ((base_port++)); done
-        echo "    { \"name\": \"input$((i+1))\", \"type\": \"TcpListener\", \"settings\": { \"address\": \"0.0.0.0\", \"port\": $base_port, \"nodelay\": true }, \"next\": \"hd$((i+1))\" }," >> config.json
-        echo "    { \"name\": \"hd$((i+1))\", \"type\": \"HalfDuplexServer\", \"settings\": {}, \"next\": \"out$((i+1))\" }," >> config.json
-        echo "    { \"name\": \"out$((i+1))\", \"type\": \"TcpConnector\", \"settings\": { \"nodelay\": true, \"address\": \"127.0.0.1\", \"port\": ${PORTS[$i]} } }," >> config.json
-        echo "    // $base_port → ${PORTS[$i]}"  # نگاشت برعکس
-        ((base_port++))
-    done
-    sed -i '$ s/,$//' config.json
-    echo "  ]
-}" >> config.json
-fi
-
-# راه‌اندازی systemd
-log "Creating poststart.sh..."
-cat > poststart.sh <<EOF
-#!/bin/bash
-for i in {1..10}; do ip link show wtun0 && break; sleep 1; done
-ip link set dev eth0 mtu 1420 || true
-ip link set dev wtun0 mtu 1420 || true
-EOF
-chmod +x poststart.sh
-
-log "Creating systemd service..."
+# سرویس systemd
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=PacketTunnel Service
@@ -166,8 +143,6 @@ User=root
 WorkingDirectory=$INSTALL_DIR
 ExecStartPre=/bin/bash -c "ip link delete wtun0 || true"
 ExecStart=$INSTALL_DIR/Waterwall
-ExecStartPost=$INSTALL_DIR/poststart.sh
-ExecStopPost=/bin/bash -c "ip link delete wtun0 || true"
 Restart=always
 RestartSec=5
 
@@ -180,7 +155,6 @@ systemctl enable packettunnel.service
 systemctl restart packettunnel.service
 
 # تایمر ری‌استارت
-log "Creating 10-minute restart timer..."
 cat > /etc/systemd/system/packettunnel-restart.service <<EOF
 [Unit]
 Description=Restart PacketTunnel every 10 mins
