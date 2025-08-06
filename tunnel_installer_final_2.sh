@@ -99,7 +99,7 @@ for i in "${!PORTS[@]}"; do
     if $USE_MUX; then
         mux_settings="{}"
         if [[ "$type_suffix" == "Client" ]]; then
-          mux_settings="{ \"concurrency-mode\": \"parallel\" }"
+          mux_settings="{ "concurrency-mode": "multiplex" }"
         fi
         echo "    { \"name\": \"$chain\", \"type\": \"Mux$type_suffix\", \"settings\": $mux_settings, \"next\": \"${chain}m\" }," >> config.json
         chain="${chain}m"; CHAIN_NODES+=("Mux")
