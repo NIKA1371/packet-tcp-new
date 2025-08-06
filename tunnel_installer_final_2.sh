@@ -109,8 +109,7 @@ for i in "${!PORTS[@]}"; do
     chain="chain$((i+1))"
 
     if $USE_MUX; then
-        # ✅ اصلاح: اضافه کردن concurrency_mode: 1
-        echo "    , { \"name\": \"$chain\", \"type\": \"Mux${NODE_ROLE}\", \"settings\": { \"concurrency_mode\": 1 }, \"next\": \"${chain}m\" }" >> config.json
+        echo "    , { \"name\": \"$chain\", \"type\": \"Mux${NODE_ROLE}\", \"settings\": {}, \"next\": \"${chain}m\" }" >> config.json
         chain="${chain}m"
         CHAIN_NODES+=("Mux")
     fi
@@ -178,7 +177,6 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reexec
-systemctl daemon-reload
 systemctl enable packettunnel.service
 systemctl restart packettunnel.service
 
