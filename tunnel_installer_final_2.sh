@@ -97,7 +97,11 @@ for i in "${!PORTS[@]}"; do
     echo "    { \"name\": \"input$((i+1))\", \"type\": \"TcpListener\", \"settings\": { \"address\": \"0.0.0.0\", \"port\": $port, \"nodelay\": true }, \"next\": \"chain$((i+1))\" }," >> config.json
     chain="chain$((i+1))"
     if $USE_MUX; then
-        echo "    { \"name\": \"$chain\", \"type\": \"Mux$type_suffix\", \"settings\": {}, \"next\": \"${chain}m\" }," >> config.json
+        mux_settings="{}"
+        if [[ "$type_suffix" == "Client" ]]; then
+          mux_settings="{ \"concurrency-mode\": \"parallel\" }"
+        fi
+        echo "    { \"name\": \"$chain\", \"type\": \"Mux$type_suffix\", \"settings\": $mux_settings, \"next\": \"${chain}m\" }," >> config.json
         chain="${chain}m"; CHAIN_NODES+=("Mux")
     fi
     if [[ "$METHOD" == "half" ]]; then
