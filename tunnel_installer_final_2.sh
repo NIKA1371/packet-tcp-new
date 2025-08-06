@@ -97,8 +97,14 @@ for i in "${!PORTS[@]}"; do
         echo "    { \"name\": \"$chain\", \"type\": \"Mux$([[ $ROLE == \"iran\" ]] && echo Client || echo Server)\", \"settings\": {}, \"next\": \"${chain}m\" }," >> config.json
         chain="${chain}m"; CHAIN_NODES+=("Mux")
     fi
-    type_name=$(echo "$METHOD" | sed 's/-//g')
-    echo "    { \"name\": \"$chain\", \"type\": \"$(tr '[:lower:]' '[:upper:]' <<< ${type_name:0:1})${type_name:1}$([[ $ROLE == \"iran\" ]] && echo Client || echo Server)\", \"settings\": {}, \"next\": \"${chain}o\" }," >> config.json
+    if [[ "$METHOD" == "half" ]]; then
+        type="HalfDuplex$([[ $ROLE == \"iran\" ]] && echo Client || echo Server)"
+    else
+        type_name=$(echo "$METHOD" | sed 's/-//g')
+        method_pascal=$(tr '[:lower:]' '[:upper:]' <<< ${type_name:0:1})${type_name:1}
+        type="${method_pascal}$([[ $ROLE == \"iran\" ]] && echo Client || echo Server)"
+    fi
+    echo "    { \"name\": \"$chain\", \"type\": \"$type\", \"settings\": {}, \"next\": \"${chain}o\" }," >> config.json
     chain="${chain}o"; CHAIN_NODES+=("$METHOD")
     if $USE_OBFS; then
         echo "    { \"name\": \"$chain\", \"type\": \"Obfuscator$([[ $ROLE == \"iran\" ]] && echo Client || echo Server)\", \"settings\": {\"key\": \"123\"}, \"next\": \"${chain}t\" }," >> config.json
