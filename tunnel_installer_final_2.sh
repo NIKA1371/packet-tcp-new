@@ -95,7 +95,7 @@ skip_port=30087
 for i in "${!PORTS[@]}"; do
     port="${PORTS[$i]}"
     while [[ $base_port -eq $skip_port ]]; do ((base_port++)); done
-    echo "    { \"name\": \"input$((i+1))\", \"type\": \"TcpListener\", \"settings\": { \"address\": \"0.0.0.0\", \"port\": $port, \"nodelay\": true }, \"next\": \"chain$((i+1))\" }," >> config.json
+    echo "    { \"name\": \"input$((i+1))\", \"type\": \"TcpListener\", \"settings\": { \"address\": \"0.0.0.0\", \"port\": ${PORTS[$i]}, \"nodelay\": true }, \"next\": \"chain$((i+1))\" }," >> config.json
     chain="chain$((i+1))"
     if $USE_MUX; then
         echo "    { \"name\": \"$chain\", \"type\": \"Mux$([[ $ROLE == \"iran\" ]] && echo Client || echo Server)\", \"settings\": {}, \"next\": \"${chain}m\" }," >> config.json
