@@ -15,10 +15,6 @@ USE_OBFS=false
 USE_MUX=false
 USE_TLS=false
 
-MUX_CAPACITY=8
-MUX_MODE=1
-MUX_DURATION=60000
-
 log() { echo -e "[+] $1"; }
 
 if [[ "$1" == "--uninstall" ]]; then
@@ -52,7 +48,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Normalize ROLE
+# Normalize and validate ROLE
 ROLE=$(echo "$ROLE" | tr '[:upper:]' '[:lower:]' | xargs)
 if [[ -z "$ROLE" || -z "$IP_IRAN" || -z "$IP_KHAREJ" || -z "$METHOD" || ${#PORTS[@]} -eq 0 ]]; then
     echo "❌ Missing required arguments."
@@ -164,10 +160,9 @@ EOF
         CHAIN_NODES+=("TLS")
     fi
 
-    # TcpConnector
-    local connector_ip connector_port
+    # TcpConnector: Set target IP and port
     if [[ "$ROLE" == "iran" ]]; then
-        connector_ip="10.10.0.2"   # Connect to kharej's wtun0
+        connector_ip="10.10.0.2"   # Connect to wtun0 of kharej server
         connector_port="$base_port"
     else
         connector_ip="127.0.0.1"   # Connect to local service
@@ -182,6 +177,7 @@ EOF
     ((base_port++))
 done
 
+# Close JSON
 cat >> config.json <<EOF
   ]
 }
@@ -189,7 +185,7 @@ EOF
 
 log "Node chain order: ${CHAIN_NODES[*]}"
 
-# poststart.sh
+# Create poststart.sh
 cat > "$INSTALL_DIR/poststart.sh" <<'EOF'
 #!/bin/bash
 for i in {1..10}; do ip link show wtun0 && break; sleep 1; done
@@ -198,7 +194,7 @@ ip link set dev wtun0 mtu 1420 || true
 EOF
 chmod +x "$INSTALL_DIR/poststart.sh"
 
-# Service file
+# Create systemd service
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=PacketTunnel Service
@@ -223,7 +219,7 @@ systemctl daemon-reexec
 systemctl enable packettunnel.service
 systemctl restart packettunnel.service
 
-# Restart timer
+# Timer for restart
 cat > /etc/systemd/system/packettunnel-restart.service <<'EOF'
 [Unit]
 Description=Restart PacketTunnel every 10 mins
