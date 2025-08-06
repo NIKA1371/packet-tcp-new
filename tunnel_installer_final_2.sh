@@ -3,6 +3,7 @@ set -e
 
 INSTALL_DIR="/root/packettunnel"
 SERVICE_FILE="/etc/systemd/system/packettunnel.service"
+# ✅ حذف اسپیس اضافه در انتهای URL
 CORE_URL="https://raw.githubusercontent.com/NIKA1371/packet-tcp-new/main/core.json"
 WATERWALL_URL="https://raw.githubusercontent.com/NIKA1371/packet-tcp-new/main/Waterwall"
 
@@ -109,7 +110,8 @@ for i in "${!PORTS[@]}"; do
     chain="chain$((i+1))"
 
     if $USE_MUX; then
-        echo "    , { \"name\": \"$chain\", \"type\": \"Mux${NODE_ROLE}\", \"settings\": {}, \"next\": \"${chain}m\" }" >> config.json
+        # ✅ اصلاح اصلی: اضافه کردن concurrency_mode: 1
+        echo "    , { \"name\": \"$chain\", \"type\": \"Mux${NODE_ROLE}\", \"settings\": { \"concurrency_mode\": 1 }, \"next\": \"${chain}m\" }" >> config.json
         chain="${chain}m"
         CHAIN_NODES+=("Mux")
     fi
@@ -142,20 +144,35 @@ for i in "${!PORTS[@]}"; do
     ((base_port++))
 done
 
+# فرمت‌بندی درست JSON
 sed -i '2s/^/  /;3,$s/^/    /' config.json
 echo "  ]
 }" >> config.json
 
 log "Node chain order: ${CHAIN_NODES[*]}"
 
+# ✅ اسکریپت پس از شروع: تضمین ایجاد tun و تنظیم mtu
 cat > "$INSTALL_DIR/poststart.sh" <<EOF
 #!/bin/bash
-for i in {1..10}; do ip link show wtun0 && break; sleep 1; done
+# اطمینان از اینکه wtun0 ساخته شده
+for i in {1..10}; do
+    ip link show wtun0 > /dev/null 2>&1 && break
+    sleep 1
+done
+
+# تنظیم MTU (اختیاری اما توصیه‌شده)
 ip link set dev eth0 mtu 1420 || true
 ip link set dev wtun0 mtu 1420 || true
+
+# اگر tun دستگاه وجود نداشت، خطا می‌دهد
+if ! ip link show wtun0 > /dev/null 2>&1; then
+    echo "ERROR: wtun0 device was not created by Waterwall!" >&2
+    exit 1
+fi
 EOF
 chmod +x "$INSTALL_DIR/poststart.sh"
 
+# ✅ تنظیم سرویس سیستمی
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=PacketTunnel Service
@@ -165,9 +182,13 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=$INSTALL_DIR
+# حذف دستگاه قبلی اگر وجود داشت
 ExecStartPre=/bin/bash -c "ip link delete wtun0 || true"
+# اجرای Waterwall با مشخص کردن فایل پیکربندی
 ExecStart=$INSTALL_DIR/Waterwall -c $INSTALL_DIR/config.json
+# اجرای پس‌پردازش
 ExecStartPost=$INSTALL_DIR/poststart.sh
+# پاک کردن دستگاه در هنگام توقف
 ExecStopPost=/bin/bash -c "ip link delete wtun0 || true"
 Restart=always
 RestartSec=5
@@ -176,10 +197,13 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
+# بارگذاری مجدد سرویس‌ها
 systemctl daemon-reexec
+systemctl daemon-reload
 systemctl enable packettunnel.service
 systemctl restart packettunnel.service
 
+# ✅ تنظیم تایمر ریستارت (هر ۱۰ دقیقه)
 cat > /etc/systemd/system/packettunnel-restart.service <<EOF
 [Unit]
 Description=Restart PacketTunnel every 10 mins
@@ -201,6 +225,7 @@ OnUnitActiveSec=10min
 WantedBy=timers.target
 EOF
 
+systemctl daemon-reload
 systemctl enable --now packettunnel-restart.timer
 
 log "✅ PacketTunnel installed and running."
