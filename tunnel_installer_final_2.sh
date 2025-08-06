@@ -19,7 +19,6 @@ MUX_CAPACITY=8
 MUX_MODE=1
 MUX_DURATION=60000
 
-
 log() { echo -e "[+] $1"; }
 
 if [[ "$1" == "--uninstall" ]]; then
