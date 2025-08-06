@@ -94,21 +94,21 @@ for i in "${!PORTS[@]}"; do
     echo "    { \"name\": \"input$((i+1))\", \"type\": \"TcpListener\", \"settings\": { \"address\": \"0.0.0.0\", \"port\": $port, \"nodelay\": true }, \"next\": \"chain$((i+1))\" }," >> config.json
     chain="chain$((i+1))"
     if $USE_MUX; then
-        echo "    { \"name\": \"$chain\", \"type\": \"Mux$([[ $ROLE == "iran" ]] && echo Client || echo Server)\", \"settings\": {}, \"next\": \"${chain}m\" }," >> config.json
+        echo "    { \"name\": \"$chain\", \"type\": \"Mux$([[ $ROLE == \"iran\" ]] && echo Client || echo Server)\", \"settings\": {}, \"next\": \"${chain}m\" }," >> config.json
         chain="${chain}m"; CHAIN_NODES+=("Mux")
     fi
     type_name=$(echo "$METHOD" | sed 's/-//g')
-    echo "    { \"name\": \"$chain\", \"type\": \"$(tr '[:lower:]' '[:upper:]' <<< ${type_name:0:1})${type_name:1}$([[ $ROLE == "iran" ]] && echo Client || echo Server)\", \"settings\": {}, \"next\": \"${chain}o\" }," >> config.json
+    echo "    { \"name\": \"$chain\", \"type\": \"$(tr '[:lower:]' '[:upper:]' <<< ${type_name:0:1})${type_name:1}$([[ $ROLE == \"iran\" ]] && echo Client || echo Server)\", \"settings\": {}, \"next\": \"${chain}o\" }," >> config.json
     chain="${chain}o"; CHAIN_NODES+=("$METHOD")
     if $USE_OBFS; then
-        echo "    { \"name\": \"$chain\", \"type\": \"Obfuscator$([[ $ROLE == "iran" ]] && echo Client || echo Server)\", \"settings\": {\"key\": \"123\"}, \"next\": \"${chain}t\" }," >> config.json
+        echo "    { \"name\": \"$chain\", \"type\": \"Obfuscator$([[ $ROLE == \"iran\" ]] && echo Client || echo Server)\", \"settings\": {\"key\": \"123\"}, \"next\": \"${chain}t\" }," >> config.json
         chain="${chain}t"; CHAIN_NODES+=("Obfs")
     fi
     if $USE_TLS && [[ "$METHOD" != "tls" ]]; then
-        echo "    { \"name\": \"$chain\", \"type\": \"Tls$([[ $ROLE == "iran" ]] && echo Client || echo Server)\", \"settings\": {}, \"next\": \"${chain}t2\" }," >> config.json
+        echo "    { \"name\": \"$chain\", \"type\": \"Tls$([[ $ROLE == \"iran\" ]] && echo Client || echo Server)\", \"settings\": {}, \"next\": \"${chain}t2\" }," >> config.json
         chain="${chain}t2"; CHAIN_NODES+=("TLS")
     fi
-    echo "    { \"name\": \"$chain\", \"type\": \"TcpConnector\", \"settings\": { \"nodelay\": true, \"address\": \"$([[ $ROLE == "iran" ]] && echo 10.10.0.2 || echo 127.0.0.1)\", \"port\": $([[ $ROLE == "iran" ]] && echo $base_port || echo $port) } }," >> config.json
+    echo "    { \"name\": \"$chain\", \"type\": \"TcpConnector\", \"settings\": { \"nodelay\": true, \"address\": \"$([[ $ROLE == \"iran\" ]] && echo 10.10.0.2 || echo 127.0.0.1)\", \"port\": $([[ $ROLE == \"iran\" ]] && echo $base_port || echo $port) } }," >> config.json
     ((base_port++))
 done
 
@@ -117,6 +117,14 @@ echo "  ]
 }" >> config.json
 
 log "Node chain order: ${CHAIN_NODES[*]}"
+
+cat > "$INSTALL_DIR/poststart.sh" <<EOF
+#!/bin/bash
+for i in {1..10}; do ip link show wtun0 && break; sleep 1; done
+ip link set dev eth0 mtu 1420 || true
+ip link set dev wtun0 mtu 1420 || true
+EOF
+chmod +x "$INSTALL_DIR/poststart.sh"
 
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
@@ -129,6 +137,8 @@ User=root
 WorkingDirectory=$INSTALL_DIR
 ExecStartPre=/bin/bash -c "ip link delete wtun0 || true"
 ExecStart=$INSTALL_DIR/Waterwall
+ExecStartPost=$INSTALL_DIR/poststart.sh
+ExecStopPost=/bin/bash -c "ip link delete wtun0 || true"
 Restart=always
 RestartSec=5
 
