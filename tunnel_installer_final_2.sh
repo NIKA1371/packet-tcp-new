@@ -52,6 +52,9 @@ if [[ -z "$ROLE" || -z "$IP_IRAN" || -z "$IP_KHAREJ" || -z "$METHOD" ]]; then
     exit 1
 fi
 
+# Determine correct suffix based on ROLE
+type_suffix="$([[ $ROLE == "iran" ]] && echo Client || echo Server)"
+
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
@@ -94,24 +97,24 @@ for i in "${!PORTS[@]}"; do
     echo "    { \"name\": \"input$((i+1))\", \"type\": \"TcpListener\", \"settings\": { \"address\": \"0.0.0.0\", \"port\": $port, \"nodelay\": true }, \"next\": \"chain$((i+1))\" }," >> config.json
     chain="chain$((i+1))"
     if $USE_MUX; then
-        echo "    { \"name\": \"$chain\", \"type\": \"Mux$([[ $ROLE == \"iran\" ]] && echo Client || echo Server)\", \"settings\": {}, \"next\": \"${chain}m\" }," >> config.json
+        echo "    { \"name\": \"$chain\", \"type\": \"Mux$type_suffix\", \"settings\": {}, \"next\": \"${chain}m\" }," >> config.json
         chain="${chain}m"; CHAIN_NODES+=("Mux")
     fi
     if [[ "$METHOD" == "half" ]]; then
-        type="HalfDuplex$([[ $ROLE == \"iran\" ]] && echo Client || echo Server)"
+        type="HalfDuplex$type_suffix"
     else
         type_name=$(echo "$METHOD" | sed 's/-//g')
         method_pascal=$(tr '[:lower:]' '[:upper:]' <<< ${type_name:0:1})${type_name:1}
-        type="${method_pascal}$([[ $ROLE == \"iran\" ]] && echo Client || echo Server)"
+        type="${method_pascal}$type_suffix"
     fi
     echo "    { \"name\": \"$chain\", \"type\": \"$type\", \"settings\": {}, \"next\": \"${chain}o\" }," >> config.json
     chain="${chain}o"; CHAIN_NODES+=("$METHOD")
     if $USE_OBFS; then
-        echo "    { \"name\": \"$chain\", \"type\": \"Obfuscator$([[ $ROLE == \"iran\" ]] && echo Client || echo Server)\", \"settings\": {\"method\": \"xor\", \"xor_key\": \"123\"}, \"next\": \"${chain}t\" }," >> config.json
+        echo "    { \"name\": \"$chain\", \"type\": \"Obfuscator$type_suffix\", \"settings\": {\"method\": \"xor\", \"xor_key\": \"123\"}, \"next\": \"${chain}t\" }," >> config.json
         chain="${chain}t"; CHAIN_NODES+=("Obfs")
     fi
     if $USE_TLS && [[ "$METHOD" != "tls" ]]; then
-        echo "    { \"name\": \"$chain\", \"type\": \"Tls$([[ $ROLE == \"iran\" ]] && echo Client || echo Server)\", \"settings\": {}, \"next\": \"${chain}t2\" }," >> config.json
+        echo "    { \"name\": \"$chain\", \"type\": \"Tls$type_suffix\", \"settings\": {}, \"next\": \"${chain}t2\" }," >> config.json
         chain="${chain}t2"; CHAIN_NODES+=("TLS")
     fi
     echo "    { \"name\": \"$chain\", \"type\": \"TcpConnector\", \"settings\": { \"nodelay\": true, \"address\": \"$([[ $ROLE == \"iran\" ]] && echo 10.10.0.2 || echo 127.0.0.1)\", \"port\": $([[ $ROLE == \"iran\" ]] && echo $base_port || echo $port) } }," >> config.json
