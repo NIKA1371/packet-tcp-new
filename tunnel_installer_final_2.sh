@@ -52,6 +52,20 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Correct Mux type assignment based on role
+if [[ "$ROLE" == "iran" ]]; then
+    MUX_TYPE="MuxClient"
+else
+    MUX_TYPE="MuxServer"
+fi
+
+# Determine Mux type based on role
+if [[ "$ROLE" == "iran" ]]; then
+    MUX_TYPE="MuxClient"
+else
+    MUX_TYPE="MuxServer"
+fi
+
 # Determine Mux type based on role
 if [[ "$ROLE" == "iran" ]]; then
     MUX_TYPE="MuxClient"
