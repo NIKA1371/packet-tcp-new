@@ -14,9 +14,10 @@ METHOD=""
 USE_OBFS=false
 USE_MUX=false
 USE_TLS=false
-XOR_KEY=123  # now default as integer
+XOR_KEY=123
 
-MUX_MODE=1
+# Set MUX mode to 0 (most compatible)
+MUX_MODE=0
 MUX_CAPACITY=8
 MUX_DURATION=60000
 
@@ -112,14 +113,6 @@ for i in "${!PORTS[@]}"; do
     fi
     echo "    { \"name\": \"$chain\", \"type\": \"$type\", \"settings\": {}, \"next\": \"${chain}o\" }," >> config.json
     chain="${chain}o"; CHAIN_NODES+=("$METHOD")
-    if $USE_OBFS; then
-        echo "    { \"name\": \"$chain\", \"type\": \"Obfuscator$([[ $ROLE == "iran" ]] && echo Client || echo Server)\", \"settings\": { \"xor_key\": $XOR_KEY }, \"next\": \"${chain}t\" }," >> config.json
-        chain="${chain}t"; CHAIN_NODES+=("Obfs")
-    fi
-    if $USE_TLS && [[ "$METHOD" != "tls" ]]; then
-        echo "    { \"name\": \"$chain\", \"type\": \"Tls$([[ $ROLE == "iran" ]] && echo Client || echo Server)\", \"settings\": {}, \"next\": \"${chain}t2\" }," >> config.json
-        chain="${chain}t2"; CHAIN_NODES+=("TLS")
-    fi
     echo "    { \"name\": \"$chain\", \"type\": \"TcpConnector\", \"settings\": { \"nodelay\": true, \"address\": \"$([[ $ROLE == "iran" ]] && echo 10.10.0.2 || echo 127.0.0.1)\", \"port\": $([[ $ROLE == "iran" ]] && echo $base_port || echo $port) } }," >> config.json
     ((base_port++))
 done
