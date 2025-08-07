@@ -14,7 +14,7 @@ METHOD=""
 USE_OBFS=false
 USE_MUX=false
 USE_TLS=false
-XOR_KEY="123"
+XOR_KEY=123  # now default as integer
 
 MUX_MODE=1
 MUX_CAPACITY=8
@@ -113,7 +113,7 @@ for i in "${!PORTS[@]}"; do
     echo "    { \"name\": \"$chain\", \"type\": \"$type\", \"settings\": {}, \"next\": \"${chain}o\" }," >> config.json
     chain="${chain}o"; CHAIN_NODES+=("$METHOD")
     if $USE_OBFS; then
-        echo "    { \"name\": \"$chain\", \"type\": \"Obfuscator$([[ $ROLE == "iran" ]] && echo Client || echo Server)\", \"settings\": { \"method\": \"xor\", \"xor_key\": \"$XOR_KEY\" }, \"next\": \"${chain}t\" }," >> config.json
+        echo "    { \"name\": \"$chain\", \"type\": \"Obfuscator$([[ $ROLE == "iran" ]] && echo Client || echo Server)\", \"settings\": { \"xor_key\": $XOR_KEY }, \"next\": \"${chain}t\" }," >> config.json
         chain="${chain}t"; CHAIN_NODES+=("Obfs")
     fi
     if $USE_TLS && [[ "$METHOD" != "tls" ]]; then
