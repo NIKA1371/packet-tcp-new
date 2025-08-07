@@ -3,7 +3,6 @@ set -e
 
 INSTALL_DIR="/root/packettunnel"
 SERVICE_FILE="/etc/systemd/system/packettunnel.service"
-# ✅ حذف اسپیس اضافه در انتهای URL
 CORE_URL="https://raw.githubusercontent.com/NIKA1371/packet-tcp-new/main/core.json"
 WATERWALL_URL="https://raw.githubusercontent.com/NIKA1371/packet-tcp-new/main/Waterwall"
 
@@ -15,10 +14,10 @@ METHOD=""
 USE_OBFS=false
 USE_MUX=false
 USE_TLS=false
+XOR_KEY="123"
 
-# تنظیمات MUX (در صورت پشتیبانی توسط Waterwall)
-MUX_CAPACITY=8
 MUX_MODE=1
+MUX_CAPACITY=8
 MUX_DURATION=60000
 
 log() { echo -e "[+] $1"; }
@@ -49,14 +48,12 @@ while [[ $# -gt 0 ]]; do
         --obfs) USE_OBFS=true; shift ;;
         --mux) USE_MUX=true; shift ;;
         --tls) USE_TLS=true; shift ;;
+        --xor-key) XOR_KEY="$2"; shift 2 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
 
-# Normalize ROLE
-ROLE=$(echo "$ROLE" | tr '[:upper:]' '[:lower:]' | xargs)
-
-if [[ -z "$ROLE" || -z "$IP_IRAN" || -z "$IP_KHAREJ" || -z "$METHOD" || ${#PORTS[@]} -eq 0 ]]; then
+if [[ -z "$ROLE" || -z "$IP_IRAN" || -z "$IP_KHAREJ" || -z "$METHOD" ]]; then
     echo "❌ Missing required arguments"
     exit 1
 fi
@@ -65,110 +62,34 @@ mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
 log "Downloading Waterwall..."
-# ✅ اطمینان از دانلود موفق
-curl -fsSL "$WATERWALL_URL" -o Waterwall.tmp
-mv Waterwall.tmp Waterwall
+curl -fsSL "$WATERWALL_URL" -o Waterwall
 chmod +x Waterwall
 
 log "Downloading core.json..."
-curl -fsSL "$CORE_URL" -o core.json.tmp
-mv core.json.tmp core.json
+curl -fsSL "$CORE_URL" -o core.json
 
 log "Building config.json..."
-
-# Determine client/server role
-if [[ "$ROLE" == "iran" ]]; then
-    NODE_ROLE="Client"
-else
-    NODE_ROLE="Server"
-fi
-
 CHAIN_NODES=()
 
-# ساخت JSON به صورت دقیق و بدون تغییر بعدی با sed
 cat > config.json <<EOF
 {
   "name": "$ROLE",
   "nodes": [
-    {
-      "name": "tun",
-      "type": "TunDevice",
-      "settings": {
-        "device-name": "wtun0",
-        "device-ip": "10.10.0.1/24"
-      },
-      "next": "srcip"
-    },
-    {
-      "name": "srcip",
-      "type": "IpOverrider",
-      "settings": {
-        "direction": "up",
-        "mode": "source-ip",
-        "ipv4": "$([[ $ROLE == "iran" ]] && echo $IP_IRAN || echo $IP_KHAREJ)"
-      },
-      "next": "dstip"
-    },
-    {
-      "name": "dstip",
-      "type": "IpOverrider",
-      "settings": {
-        "direction": "up",
-        "mode": "dest-ip",
-        "ipv4": "$([[ $ROLE == "iran" ]] && echo $IP_KHAREJ || echo $IP_IRAN)"
-      },
-      "next": "$([[ $METHOD == "half" ]] && echo manip || echo stream)"
-    }
+    { "name": "tun", "type": "TunDevice", "settings": { "device-name": "wtun0", "device-ip": "10.10.0.1/24" }, "next": "srcip" },
+    { "name": "srcip", "type": "IpOverrider", "settings": { "direction": "up", "mode": "source-ip", "ipv4": "$([[ $ROLE == "iran" ]] && echo $IP_IRAN || echo $IP_KHAREJ)" }, "next": "dstip" },
+    { "name": "dstip", "type": "IpOverrider", "settings": { "direction": "up", "mode": "dest-ip", "ipv4": "$([[ $ROLE == "iran" ]] && echo $IP_KHAREJ || echo $IP_IRAN)" }, "next": "$([[ $METHOD == "half" ]] && echo manip || echo stream)" },
 EOF
 
 if [[ "$METHOD" == "half" ]]; then
 cat >> config.json <<EOF
-    ,
-    {
-      "name": "manip",
-      "type": "IpManipulator",
-      "settings": {
-        "protoswap": 132,
-        "tcp-flags": {
-          "set": ["ack", "urg"],
-          "unset": ["syn", "rst", "fin", "psh"]
-        }
-      },
-      "next": "dnsrc"
-    },
-    {
-      "name": "dnsrc",
-      "type": "IpOverrider",
-      "settings": {
-        "direction": "down",
-        "mode": "source-ip",
-        "ipv4": "10.10.0.2"
-      },
-      "next": "dndst"
-    },
-    {
-      "name": "dndst",
-      "type": "IpOverrider",
-      "settings": {
-        "direction": "down",
-        "mode": "dest-ip",
-        "ipv4": "10.10.0.1"
-      },
-      "next": "stream"
-    }
+    { "name": "manip", "type": "IpManipulator", "settings": { "protoswap": 132, "tcp-flags": { "set": ["ack", "urg"], "unset": ["syn", "rst", "fin", "psh"] } }, "next": "dnsrc" },
+    { "name": "dnsrc", "type": "IpOverrider", "settings": { "direction": "down", "mode": "source-ip", "ipv4": "10.10.0.2" }, "next": "dndst" },
+    { "name": "dndst", "type": "IpOverrider", "settings": { "direction": "down", "mode": "dest-ip", "ipv4": "10.10.0.1" }, "next": "stream" },
 EOF
 fi
 
 cat >> config.json <<EOF
-    ,
-    {
-      "name": "stream",
-      "type": "RawSocket",
-      "settings": {
-        "capture-filter-mode": "source-ip",
-        "capture-ip": "$([[ $ROLE == "iran" ]] && echo $IP_KHAREJ || echo $IP_IRAN)"
-      }
-    }
+    { "name": "stream", "type": "RawSocket", "settings": { "capture-filter-mode": "source-ip", "capture-ip": "$([[ $ROLE == "iran" ]] && echo $IP_KHAREJ || echo $IP_IRAN)" } },
 EOF
 
 base_port=30083
@@ -177,123 +98,33 @@ skip_port=30087
 for i in "${!PORTS[@]}"; do
     port="${PORTS[$i]}"
     while [[ $base_port -eq $skip_port ]]; do ((base_port++)); done
-
-    # ایجاد نودهای ورودی
-    echo "    ," >> config.json
-    echo "    {
-      \"name\": \"input$((i+1))\",
-      \"type\": \"TcpListener\",
-      \"settings\": {
-        \"address\": \"0.0.0.0\",
-        \"port\": ${PORTS[$i]},
-        \"nodelay\": true
-      },
-      \"next\": \"chain$((i+1))\"
-    }" >> config.json
-
+    echo "    { \"name\": \"input$((i+1))\", \"type\": \"TcpListener\", \"settings\": { \"address\": \"0.0.0.0\", \"port\": $port, \"nodelay\": true }, \"next\": \"chain$((i+1))\" }," >> config.json
     chain="chain$((i+1))"
-
     if $USE_MUX; then
-        # ✅ اضافه کردن تنظیمات کامل MuxClient با پشتیبانی از متغیرها
-        echo "    ," >> config.json
-        echo "    {
-          \"name\": \"$chain\",
-          \"type\": \"Mux${NODE_ROLE}\",
-          \"settings\": {
-            \"concurrency_mode\": $MUX_MODE,
-            \"capacity\": $MUX_CAPACITY,
-            \"duration_ms\": $MUX_DURATION
-          },
-          \"next\": \"${chain}m\"
-        }" >> config.json
-        chain="${chain}m"
-        CHAIN_NODES+=("Mux")
+        echo "    { \"name\": \"$chain\", \"type\": \"Mux$([[ $ROLE == "iran" ]] && echo Client || echo Server)\", \"settings\": { \"mode\": $MUX_MODE, \"capacity\": $MUX_CAPACITY, \"duration\": $MUX_DURATION }, \"next\": \"${chain}m\" }," >> config.json
+        chain="${chain}m"; CHAIN_NODES+=("Mux")
     fi
-
-    if [[ "$METHOD" == "half" ]]; then
-        type="HalfDuplex${NODE_ROLE}"
-    else
-        type_name=$(echo "$METHOD" | sed 's/-//g')
-        method_pascal=$(tr '[:lower:]' '[:upper:]' <<< ${type_name:0:1})${type_name:1}
-        type="${method_pascal}${NODE_ROLE}"
-    fi
-
-    echo "    ," >> config.json
-    echo "    {
-      \"name\": \"$chain\",
-      \"type\": \"$type\",
-      \"settings\": {},
-      \"next\": \"${chain}o\"
-    }" >> config.json
-    chain="${chain}o"
-    CHAIN_NODES+=("$METHOD")
-
+    type_name=$(echo "$METHOD" | sed 's/-//g')
+    echo "    { \"name\": \"$chain\", \"type\": \"$(tr '[:lower:]' '[:upper:]' <<< ${type_name:0:1})${type_name:1}$([[ $ROLE == "iran" ]] && echo Client || echo Server)\", \"settings\": {}, \"next\": \"${chain}o\" }," >> config.json
+    chain="${chain}o"; CHAIN_NODES+=("$METHOD")
     if $USE_OBFS; then
-        echo "    ," >> config.json
-        echo "    {
-          \"name\": \"$chain\",
-          \"type\": \"Obfuscator${NODE_ROLE}\",
-          \"settings\": {
-            \"method\": \"xor\",
-            \"xor_key\": \"123\"
-          },
-          \"next\": \"${chain}t\"
-        }" >> config.json
-        chain="${chain}t"
-        CHAIN_NODES+=("Obfs")
+        echo "    { \"name\": \"$chain\", \"type\": \"Obfuscator$([[ $ROLE == "iran" ]] && echo Client || echo Server)\", \"settings\": {\"method\": \"xor\", \"xor_key\": \"$XOR_KEY\"}, \"next\": \"${chain}t\" }," >> config.json
+        chain="${chain}t"; CHAIN_NODES+=("Obfs")
     fi
-
     if $USE_TLS && [[ "$METHOD" != "tls" ]]; then
-        echo "    ," >> config.json
-        echo "    {
-          \"name\": \"$chain\",
-          \"type\": \"Tls${NODE_ROLE}\",
-          \"settings\": {},
-          \"next\": \"${chain}t2\"
-        }" >> config.json
-        chain="${chain}t2"
-        CHAIN_NODES+=("TLS")
+        echo "    { \"name\": \"$chain\", \"type\": \"Tls$([[ $ROLE == "iran" ]] && echo Client || echo Server)\", \"settings\": {}, \"next\": \"${chain}t2\" }," >> config.json
+        chain="${chain}t2"; CHAIN_NODES+=("TLS")
     fi
-
-    echo "    ," >> config.json
-    echo "    {
-      \"name\": \"$chain\",
-      \"type\": \"TcpConnector\",
-      \"settings\": {
-        \"nodelay\": true,
-        \"address\": \"$([[ $ROLE == "iran" ]] && echo 10.10.0.2 || echo 127.0.0.1)\",
-        \"port\": $([[ $ROLE == "iran" ]] && echo $base_port || echo $port)
-      }
-    }" >> config.json
+    echo "    { \"name\": \"$chain\", \"type\": \"TcpConnector\", \"settings\": { \"nodelay\": true, \"address\": \"$([[ $ROLE == "iran" ]] && echo 10.10.0.2 || echo 127.0.0.1)\", \"port\": $([[ $ROLE == "iran" ]] && echo $base_port || echo $port) } }," >> config.json
     ((base_port++))
 done
 
-# بستن JSON
+sed -i '$ s/,$//' config.json
 echo "  ]
 }" >> config.json
 
-# ✅ بررسی صحت JSON
-if ! python3 -m json.tool config.json > /dev/null 2>&1; then
-    echo "❌ Invalid JSON generated in config.json"
-    cat config.json
-    exit 1
-fi
-
 log "Node chain order: ${CHAIN_NODES[*]}"
 
-# ✅ poststart.sh
-cat > "$INSTALL_DIR/poststart.sh" <<EOF
-#!/bin/bash
-for i in {1..10}; do
-    ip link show wtun0 > /dev/null 2>&1 && break
-    sleep 1
-done
-ip link set dev eth0 mtu 1420 || true
-ip link set dev wtun0 mtu 1420 || true
-EOF
-chmod +x "$INSTALL_DIR/poststart.sh"
-
-# ✅ سرویس سیستمی
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=PacketTunnel Service
@@ -304,9 +135,7 @@ Type=simple
 User=root
 WorkingDirectory=$INSTALL_DIR
 ExecStartPre=/bin/bash -c "ip link delete wtun0 || true"
-ExecStart=$INSTALL_DIR/Waterwall -c $INSTALL_DIR/config.json
-ExecStartPost=$INSTALL_DIR/poststart.sh
-ExecStopPost=/bin/bash -c "ip link delete wtun0 || true"
+ExecStart=$INSTALL_DIR/Waterwall
 Restart=always
 RestartSec=5
 
@@ -315,14 +144,13 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reexec
-systemctl daemon-reload
 systemctl enable packettunnel.service
 systemctl restart packettunnel.service
 
-# ✅ تایمر ریستارت
 cat > /etc/systemd/system/packettunnel-restart.service <<EOF
 [Unit]
 Description=Restart PacketTunnel every 10 mins
+
 [Service]
 Type=oneshot
 ExecStart=/bin/systemctl restart packettunnel.service
@@ -331,14 +159,15 @@ EOF
 cat > /etc/systemd/system/packettunnel-restart.timer <<EOF
 [Unit]
 Description=Timer for restarting packettunnel every 10 mins
+
 [Timer]
 OnBootSec=10min
 OnUnitActiveSec=10min
+
 [Install]
 WantedBy=timers.target
 EOF
 
-systemctl daemon-reload
 systemctl enable --now packettunnel-restart.timer
 
 log "✅ PacketTunnel installed and running."
